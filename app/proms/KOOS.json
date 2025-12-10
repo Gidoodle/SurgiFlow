@@ -1,0 +1,61 @@
+{
+  "prom_name": "KOOS",
+  "joint": "knee",
+  "version": "standard",
+  "scoring_method": "Each subscale transformed to 0–100 (100 = best). All items scored 0–4.",
+  "subscales": {
+    "pain": 9,
+    "symptoms": 7,
+    "adl": 17,
+    "sports_rec": 5,
+    "qol": 4
+  },
+  "questions": [
+    { "id": "P1", "text": "How often is your knee painful?", "range_min": 0, "range_max": 4 },
+    { "id": "P2", "text": "Twisting/pivoting on your knee", "range_min": 0, "range_max": 4 },
+    { "id": "P3", "text": "Straightening knee fully", "range_min": 0, "range_max": 4 },
+    { "id": "P4", "text": "Bending knee fully", "range_min": 0, "range_max": 4 },
+    { "id": "P5", "text": "Walking on flat surface", "range_min": 0, "range_max": 4 },
+    { "id": "P6", "text": "Going up or down stairs", "range_min": 0, "range_max": 4 },
+    { "id": "P7", "text": "At night while in bed", "range_min": 0, "range_max": 4 },
+    { "id": "P8", "text": "Sitting or lying", "range_min": 0, "range_max": 4 },
+    { "id": "P9", "text": "Standing upright", "range_min": 0, "range_max": 4 },
+
+    { "id": "Sy1", "text": "How severe is your knee stiffness after first wakening in the morning?", "range_min": 0, "range_max": 4 },
+    { "id": "Sy2", "text": "How severe is your knee stiffness after sitting, lying, or resting later in the day?", "range_min": 0, "range_max": 4 },
+    { "id": "Sy3", "text": "Do you have swelling in your knee?", "range_min": 0, "range_max": 4 },
+    { "id": "Sy4", "text": "Do you feel grinding, hear clicking or any other type of noise when your knee moves?", "range_min": 0, "range_max": 4 },
+    { "id": "Sy5", "text": "Does your knee catch or hang up when moving?", "range_min": 0, "range_max": 4 },
+    { "id": "Sy6", "text": "Can you straighten your knee fully?", "range_min": 0, "range_max": 4 },
+    { "id": "Sy7", "text": "Can you bend your knee fully?", "range_min": 0, "range_max": 4 },
+
+    { "id": "A1", "text": "Descending", "range_min": 0, "range_max": 4 },
+    { "id": "A2", "text": "Ascending stairs", "range_min": 0, "range_max": 4 },
+    { "id": "A3", "text": "Rising from sitting", "range_min": 0, "range_max": 4 },
+    { "id": "A4", "text": "Standing", "range_min": 0, "range_max": 4 },
+    { "id": "A5", "text": "Bending to floor/picking up an object", "range_min": 0, "range_max": 4 },
+    { "id": "A6", "text": "Walking on flat surface", "range_min": 0, "range_max": 4 },
+    { "id": "A7", "text": "Getting in/out of car", "range_min": 0, "range_max": 4 },
+    { "id": "A8", "text": "Going shopping", "range_min": 0, "range_max": 4 },
+    { "id": "A9", "text": "Putting on socks/stockings", "range_min": 0, "range_max": 4 },
+    { "id": "A10", "text": "Rising from bed", "range_min": 0, "range_max": 4 },
+    { "id": "A11", "text": "Taking off socks/stockings", "range_min": 0, "range_max": 4 },
+    { "id": "A12", "text": "Lying in bed (turning over, maintaining knee position)", "range_min": 0, "range_max": 4 },
+    { "id": "A13", "text": "Getting in/out of bath", "range_min": 0, "range_max": 4 },
+    { "id": "A14", "text": "Sitting", "range_min": 0, "range_max": 4 },
+    { "id": "A15", "text": "Getting on/off toilet", "range_min": 0, "range_max": 4 },
+    { "id": "A16", "text": "Heavy domestic duties (shovelling, scrubbing floors, etc)", "range_min": 0, "range_max": 4 },
+    { "id": "A17", "text": "Light domestic duties (cooking, dusting, etc)", "range_min": 0, "range_max": 4 },
+
+    { "id": "Sp1", "text": "Squatting", "range_min": 0, "range_max": 4 },
+    { "id": "Sp2", "text": "Running", "range_min": 0, "range_max": 4 },
+    { "id": "Sp3", "text": "Jumping", "range_min": 0, "range_max": 4 },
+    { "id": "Sp4", "text": "Turning/twisting on your injured knee", "range_min": 0, "range_max": 4 },
+    { "id": "Sp5", "text": "Kneeling", "range_min": 0, "range_max": 4 },
+
+    { "id": "Q1", "text": "How often are you aware of your knee problems?", "range_min": 0, "range_max": 4 },
+    { "id": "Q2", "text": "Have you modified your lifestyle to avoid potentially damaging activities to your knee?", "range_min": 0, "range_max": 4 },
+    { "id": "Q3", "text": "How troubled are you with lack of confidence in your knee?", "range_min": 0, "range_max": 4 },
+    { "id": "Q4", "text": "In general, how much difficulty do you have with your knee?", "range_min": 0, "range_max": 4 }
+  ]
+}
