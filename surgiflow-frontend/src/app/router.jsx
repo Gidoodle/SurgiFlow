@@ -5,10 +5,21 @@ import Dashboard from "./pages/Dashboard";
 import Patients from "./pages/Patients";
 import PatientDetail from "./pages/PatientDetail";
 import CreatePatient from "./pages/CreatePatient";
+import RequireAuth from "../auth/RequireAuth";
+import Login from "./pages/Login";
+
 
 export const router = createBrowserRouter([
   {
-    element: <AppLayout />,
+    path: "/login",
+    element: <Login />,
+  },
+  {
+    element: (
+      <RequireAuth>
+        <AppLayout />
+      </RequireAuth>
+    ),
     children: [
       { path: "/", element: <Navigate to="/dashboard" /> },
       { path: "/dashboard", element: <Dashboard /> },
