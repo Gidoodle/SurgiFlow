@@ -36,8 +36,10 @@ def generate_schedule(case_id: int, db: Session = Depends(get_db)):
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
 
+    # For now – default to Oxford for knees
     prom_name = "OxfordKneeScore"
 
+    # Ensure template exists
     try:
         load_prom_template(prom_name)
     except FileNotFoundError:
@@ -46,15 +48,15 @@ def generate_schedule(case_id: int, db: Session = Depends(get_db)):
     surgery_date = case.date_of_surgery
 
     intervals = [
-        -14,
-        42,
-        90,
-        180,
-        365,
-        730,
+        -14,   # 2 weeks pre-op
+        42,    # 6 weeks
+        90,    # 3 months
+        180,   # 6 months
+        365,   # 12 months
+        730,   # 24 months
     ]
 
-    schedules = []
+    schedules: list[PromSchedule] = []
 
     for days in intervals:
         due = surgery_date + timedelta(days=days)
@@ -118,6 +120,7 @@ def get_prom_form(schedule_id: int, db: Session = Depends(get_db)):
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
+    # Load PROM template (Oxford/KOOS)
     try:
         template = load_prom_template(schedule.prom_name)
     except FileNotFoundError:
@@ -136,24 +139,46 @@ def get_prom_form(schedule_id: int, db: Session = Depends(get_db)):
 
 
 # --------------------------------------------------------
-# 5. SUBMIT PROM ANSWERS
+# 5. SUBMIT PROM ANSWERS + COMPUTE SCORE
 # --------------------------------------------------------
 @router.post("/submit/{schedule_id}")
 def submit_prom_answers(
     schedule_id: int,
     data: PromSubmitIn,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
+    # 1. Fetch schedule
     schedule = db.query(PromSchedule).filter(PromSchedule.id == schedule_id).first()
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
+    if schedule.status == "completed":
+        raise HTTPException(status_code=400, detail="PROM already completed")
+
+    # 2. Load template and build question lookup
     try:
         template = load_prom_template(schedule.prom_name)
     except FileNotFoundError:
         raise HTTPException(status_code=400, detail="PROM template missing")
 
-    valid_ids = {str(q["id"]) for q in template.get("questions", [])}
+    questions = template.get("questions", [])
+    valid_ids = {str(q["id"]): q for q in questions}
+
+    if not questions:
+        raise HTTPException(status_code=400, detail="Template has no questions")
+
+    # 3. Basic validation and save answers (Option A: 1 row per question)
+    existing = (
+        db.query(PromResponse)
+        .filter(PromResponse.prom_instance_id == schedule.id)
+        .all()
+    )
+    if existing:
+        # To keep it simple: block double-submit
+        raise HTTPException(status_code=400, detail="Responses already exist for this PROM")
+
+    total_score = 0
+    answered_count = 0
 
     for answer in data.answers:
         qid = str(answer.id)
@@ -164,6 +189,18 @@ def submit_prom_answers(
                 detail=f"Invalid question ID: {qid}",
             )
 
+        q_meta = valid_ids[qid]
+        min_val = q_meta.get("range_min")
+        max_val = q_meta.get("range_max")
+
+        if min_val is not None and max_val is not None:
+            if not (min_val <= answer.value <= max_val):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Answer for question {qid} out of range ({min_val}-{max_val})",
+                )
+
+        # Save response row
         db.add(
             PromResponse(
                 prom_instance_id=schedule.id,
@@ -172,9 +209,37 @@ def submit_prom_answers(
             )
         )
 
+        total_score += answer.value
+        answered_count += 1
+
+    # 4. Mark schedule as completed
     schedule.status = "completed"
     schedule.completed_date = date.today()
 
     db.commit()
 
-    return {"message": "PROM submitted successfully", "schedule_id": schedule.id}
+    # 5. Compute PROM-specific score (for now: Oxford = simple sum)
+    score_payload = None
+
+    if schedule.prom_name == "OxfordKneeScore":
+        score_payload = {
+            "prom_name": "OxfordKneeScore",
+            "type": "total",
+            "value": total_score,
+            "max_possible": answered_count * questions[0].get("range_max", 5),
+        }
+    else:
+        score_payload = {
+            "prom_name": schedule.prom_name,
+            "type": "not_implemented",
+            "value": None,
+        }
+
+    return {
+        "message": "PROM submitted successfully",
+        "schedule_id": schedule.id,
+        "prom_name": schedule.prom_name,
+        "status": schedule.status,
+        "answered_questions": answered_count,
+        "score": score_payload,
+    }
