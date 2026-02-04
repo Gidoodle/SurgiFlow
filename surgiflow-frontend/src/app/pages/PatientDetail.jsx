@@ -7,31 +7,83 @@ export default function PatientDetail() {
   const { patientId } = useParams();
 
   const [patient, setPatient] = useState(null);
+  const [files, setFiles] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  // --------------------------------------------------
+  // Load patient + files
+  // --------------------------------------------------
   useEffect(() => {
     if (!patientId) return;
 
-    setLoading(true);
-    setError(null);
+    async function load() {
+      try {
+        setLoading(true);
+        setError(null);
 
-    fetch(`${API_BASE}/patients/${patientId}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load patient");
-        return res.json();
-      })
-      .then((data) => {
-        setPatient(data);
-      })
-      .catch(() => {
+        const patientRes = await fetch(`${API_BASE}/patients/${patientId}`);
+        if (!patientRes.ok) throw new Error("Failed to load patient");
+        const patientData = await patientRes.json();
+        setPatient(patientData);
+
+        const filesRes = await fetch(
+          `${API_BASE}/patient-files/by-patient/${patientId}`
+        );
+        if (!filesRes.ok) throw new Error("Failed to load files");
+        const filesData = await filesRes.json();
+        setFiles(filesData);
+      } catch (err) {
         setError("Failed to load patient");
-      })
-      .finally(() => {
+      } finally {
         setLoading(false);
-      });
+      }
+    }
+
+    load();
   }, [patientId]);
 
+  // --------------------------------------------------
+  // Upload + assign handler
+  // --------------------------------------------------
+  async function handleUpload(e) {
+    e.preventDefault();
+    if (!uploadFile) return;
+
+    setUploading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("patient_id", patientId);
+      formData.append("uploaded_file", uploadFile);
+
+      const res = await fetch(
+        `${API_BASE}/patient-files/upload-and-assign`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      if (!res.ok) throw new Error("Upload failed");
+
+      const newFile = await res.json();
+      setFiles((prev) => [...prev, newFile]);
+      setUploadFile(null);
+    } catch (err) {
+      alert("File upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  // --------------------------------------------------
+  // Render states
+  // --------------------------------------------------
   if (loading) return <p>Loading patient…</p>;
   if (error) return <p>{error}</p>;
   if (!patient) return <p>Patient not found</p>;
@@ -40,9 +92,11 @@ export default function PatientDetail() {
     <div style={{ maxWidth: "700px" }}>
       <h1>{patient.preferred_name || patient.full_name}</h1>
       <p>
-        {patient.joint_type ?? "-"} · {patient.age ?? "-"} · {patient.sex ?? "-"}
+        {patient.joint_type ?? "-"} · {patient.age ?? "-"} ·{" "}
+        {patient.sex ?? "-"}
       </p>
 
+      {/* ---------------- Patient Details ---------------- */}
       <h2 style={{ marginTop: "2rem" }}>Patient Details</h2>
 
       <table>
@@ -60,6 +114,29 @@ export default function PatientDetail() {
           <tr><td><strong>Address</strong></td><td>{patient.address || "-"}</td></tr>
         </tbody>
       </table>
+
+      {/* ---------------- Patient Files ---------------- */}
+      <h2 style={{ marginTop: "2.5rem" }}>Patient Files</h2>
+
+      <form onSubmit={handleUpload} style={{ marginBottom: "1rem" }}>
+        <input
+          type="file"
+          onChange={(e) => setUploadFile(e.target.files[0])}
+        />
+        <button type="submit" disabled={uploading}>
+          {uploading ? "Uploading…" : "Upload File"}
+        </button>
+      </form>
+
+      {files.length === 0 ? (
+        <p>No files uploaded</p>
+      ) : (
+        <ul>
+          {files.map((f) => (
+            <li key={f.id}>{f.filename}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
