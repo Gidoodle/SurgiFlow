@@ -5,6 +5,7 @@ from app.core.db import get_db
 from app.schemas.patient_file import PatientFileOut
 from app.models.patient_file import PatientFile
 from app.models.patient import Patient
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 
 from app.utils.pdf_parser import ocr_first_page, parse_patient_data
 
@@ -181,4 +182,59 @@ async def assign_file_to_patient(
             "filename": file_record.filename,
             "file_path": file_record.file_path
         }
+    }
+
+
+@router.get("/by-patient/{patient_id}")
+def list_files_for_patient(
+    patient_id: int,
+    db: Session = Depends(get_db)
+):
+    return (
+        db.query(PatientFile)
+        .filter(PatientFile.patient_id == patient_id)
+        .all()
+    )
+
+@router.post("/upload-and-assign")
+async def upload_and_assign_file(
+    patient_id: int = Form(...),
+
+    uploaded_file: UploadFile = File(...),
+
+    db: Session = Depends(get_db)
+):
+    """
+    MVP endpoint:
+    Upload a file and immediately attach it to an existing patient.
+    No OCR. No patient creation. Clean and predictable.
+    """
+
+    # 1. Validate patient exists
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    # 2. Save file
+    save_path = f"{UPLOAD_DIR}/{uploaded_file.filename}"
+    with open(save_path, "wb") as buffer:
+        shutil.copyfileobj(uploaded_file.file, buffer)
+
+    # 3. Create PatientFile record
+    record = PatientFile(
+        patient_id=patient.id,
+        file_path=save_path,
+        filename=uploaded_file.filename
+    )
+
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    # 4. Return clean response
+    return {
+        "id": record.id,
+        "patient_id": record.patient_id,
+        "filename": record.filename,
+        "file_path": record.file_path
     }

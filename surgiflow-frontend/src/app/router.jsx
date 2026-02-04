@@ -8,7 +8,6 @@ import CreatePatient from "./pages/CreatePatient";
 import RequireAuth from "../auth/RequireAuth";
 import Login from "./pages/Login";
 
-
 export const router = createBrowserRouter([
   {
     path: "/login",
@@ -25,7 +24,9 @@ export const router = createBrowserRouter([
       { path: "/dashboard", element: <Dashboard /> },
       { path: "/patients", element: <Patients /> },
       { path: "/patients/new", element: <CreatePatient /> },
-      { path: "/patients/:id", element: <PatientDetail /> },
+
+      // 👇 IMPORTANT CHANGE HERE
+      { path: "/patients/:patientId", element: <PatientDetail /> },
     ],
   },
 ]);
