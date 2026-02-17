@@ -7,11 +7,12 @@ from app.models.case_episode import CaseEpisode
 from app.models.patient import Patient
 from app.schemas.case_episode import CaseEpisodeCreate, CaseEpisodeOut, CaseEpisodeUpdate
 
+from app.services.prom_scheduler import schedule_proms_for_case
+
 router = APIRouter(prefix="/cases", tags=["Cases"])
 
 
 def now_hhmm() -> str:
-    # Server/device time (no typing on frontend)
     return datetime.now().strftime("%H:%M")
 
 
@@ -31,7 +32,6 @@ def recompute_and_set_duration(case: CaseEpisode) -> None:
 
 
 def to_out(case: CaseEpisode) -> CaseEpisodeOut:
-    # Prefer stored duration_minutes, but keep a safe fallback for older rows
     out = CaseEpisodeOut.model_validate(case)
     if out.duration_minutes is None:
         out.duration_minutes = compute_duration_minutes(case.cutting_time, case.closing_time)
@@ -40,12 +40,20 @@ def to_out(case: CaseEpisode) -> CaseEpisodeOut:
 
 def try_trigger_prom_schedule(db: Session, case_id: int) -> None:
     """
-    MVP-safe stub.
-    Later, when PROMs wiring is ready, replace this with a real call.
-
-    For now: do nothing, but keep the hook here so we don't forget.
+    Called when a case transitions to COMPLETED.
+    Must be safe to call multiple times (idempotent scheduler).
     """
-    return
+    try:
+        schedule_proms_for_case(db, case_id)
+    except FileNotFoundError:
+        # Template missing - do not crash the case stop flow in MVP
+        return
+    except ValueError:
+        # Case missing - should not happen if called correctly
+        return
+    except Exception:
+        # Last line of defense - do not break case completion in MVP
+        return
 
 
 @router.post("/", response_model=CaseEpisodeOut)
@@ -71,7 +79,6 @@ def create_case_episode(
 
     recompute_and_set_duration(case)
 
-    # If both times were provided but invalid (closing before cutting), reject
     if case_in.cutting_time and case_in.closing_time and case.duration_minutes is None:
         raise HTTPException(status_code=422, detail="closing_time must be after cutting_time")
 
@@ -79,7 +86,6 @@ def create_case_episode(
     db.commit()
     db.refresh(case)
 
-    # If created already completed (rare), trigger hook
     if case.case_status == "COMPLETED":
         try_trigger_prom_schedule(db, case.id)
 
@@ -103,7 +109,6 @@ def update_case_episode(
     for k, v in data.items():
         setattr(case, k, v)
 
-    # Always recompute duration if either time changed
     if "cutting_time" in data or "closing_time" in data:
         recompute_and_set_duration(case)
         if case.cutting_time and case.closing_time and case.duration_minutes is None:
@@ -112,7 +117,6 @@ def update_case_episode(
     db.commit()
     db.refresh(case)
 
-    # Trigger when status transitions to COMPLETED
     if prev_status != "COMPLETED" and case.case_status == "COMPLETED":
         try_trigger_prom_schedule(db, case.id)
 
@@ -128,7 +132,6 @@ def start_case_episode(
     if not case:
         raise HTTPException(status_code=404, detail="Case episode not found")
 
-    # Only allow start from PLANNED (and optionally IN_PROGRESS idempotent)
     if case.case_status == "COMPLETED":
         raise HTTPException(status_code=409, detail="Case already completed")
     if case.case_status == "CANCELLED":
@@ -137,11 +140,9 @@ def start_case_episode(
     if case.case_status != "IN_PROGRESS":
         case.case_status = "IN_PROGRESS"
 
-    # Auto-capture cutting time if not already set
     if not case.cutting_time:
         case.cutting_time = now_hhmm()
 
-    # Starting a case typically clears any accidental stop time
     if case.closing_time:
         case.closing_time = None
 
@@ -167,14 +168,10 @@ def stop_case_episode(
 
     prev_status = case.case_status
 
-    # Ensure we have a start time - if user stops without starting, we still capture both
     if not case.cutting_time:
         case.cutting_time = now_hhmm()
 
-    # Auto-capture closing time
     case.closing_time = now_hhmm()
-
-    # Mark completed
     case.case_status = "COMPLETED"
 
     recompute_and_set_duration(case)

@@ -10,6 +10,10 @@ export default function PatientDetail() {
   const [files, setFiles] = useState([]);
   const [cases, setCases] = useState([]);
 
+  // NEW - PROM schedule state
+  const [promSchedules, setPromSchedules] = useState([]);
+  const [promError, setPromError] = useState(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -81,12 +85,41 @@ export default function PatientDetail() {
     return `${h}h ${mm}m`;
   }
 
+  // NEW - PROM formatting helpers
+  function promStatusBadgeStyle(status) {
+    const s = (status || "pending").toLowerCase();
+    const base = {
+      fontSize: 12,
+      padding: "3px 8px",
+      borderRadius: 999,
+      border: "1px solid #ccc",
+      display: "inline-block",
+      lineHeight: 1.4,
+      userSelect: "none",
+    };
+
+    if (s === "completed") return { ...base, borderColor: "#2f855a" };
+    return { ...base, borderColor: "#777" }; // pending
+  }
+
+  function isOverdue(dueDateStr, status) {
+    if (!dueDateStr) return false;
+    if ((status || "").toLowerCase() === "completed") return false;
+    const due = new Date(dueDateStr);
+    const today = new Date();
+    // compare at day granularity
+    due.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    return due < today;
+  }
+
   useEffect(() => {
     if (!patientId) return;
 
     async function load() {
       setLoading(true);
       setError(null);
+      setPromError(null);
 
       try {
         // Patient
@@ -109,6 +142,15 @@ export default function PatientDetail() {
           setCases(Array.isArray(casesData) ? casesData : []);
         } catch {
           setCases([]);
+        }
+
+        // NEW - PROM schedule for patient
+        try {
+          const sched = await apiJson(`${API_BASE}/proms/schedule/patient/${patientId}`);
+          setPromSchedules(Array.isArray(sched) ? sched : []);
+        } catch {
+          setPromSchedules([]);
+          setPromError("Could not load PROM schedule");
         }
       } catch (e) {
         setError("Failed to load patient");
@@ -169,8 +211,7 @@ export default function PatientDetail() {
         surgeon_name: caseForm.surgeon_name || null,
         procedure_type: caseForm.procedure_type || null,
         implant_notes: caseForm.implant_notes || null,
-        // No cutting_time/closing_time here anymore.
-        // Those are captured by backend when you press Start/Stop.
+        // Times are captured by backend on Start/Stop
       };
 
       const createdCase = await apiJson(`${API_BASE}/cases/`, {
@@ -181,7 +222,6 @@ export default function PatientDetail() {
 
       setCases((prev) => [createdCase, ...prev]);
 
-      // reset UI
       setShowCaseForm(false);
       setCaseForm({
         date_of_surgery: "",
@@ -231,7 +271,6 @@ export default function PatientDetail() {
         surgeon_name: editForm.surgeon_name || null,
         procedure_type: editForm.procedure_type || null,
         implant_notes: editForm.implant_notes || null,
-        // No cutting_time/closing_time edits here.
       };
 
       const updated = await apiJson(`${API_BASE}/cases/${caseId}`, {
@@ -275,6 +314,15 @@ export default function PatientDetail() {
         method: "POST",
       });
       setCases((prev) => prev.map((c) => (c.id === caseId ? updated : c)));
+
+      // NEW - after Stop, PROM schedule is created by backend, so refresh PROM list
+      try {
+        const sched = await apiJson(`${API_BASE}/proms/schedule/patient/${patientId}`);
+        setPromSchedules(Array.isArray(sched) ? sched : []);
+        setPromError(null);
+      } catch {
+        setPromError("Could not refresh PROM schedule");
+      }
     } catch (e) {
       setActionError("Failed to stop case");
     } finally {
@@ -286,6 +334,23 @@ export default function PatientDetail() {
   if (error) return <p>{error}</p>;
   if (!patient) return <p>Patient not found</p>;
 
+  // NEW - index PROM schedules by case_id for easy grouping under each case
+  const schedulesByCaseId = promSchedules.reduce((acc, row) => {
+    const key = String(row.case_id);
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(row);
+    return acc;
+  }, {});
+
+  // Sort each case schedule by due date
+  Object.keys(schedulesByCaseId).forEach((k) => {
+    schedulesByCaseId[k].sort((a, b) => {
+      const da = new Date(a.due_date);
+      const db = new Date(b.due_date);
+      return da - db;
+    });
+  });
+
   return (
     <div style={{ maxWidth: "800px" }}>
       <h1>{patient.preferred_name || patient.full_name}</h1>
@@ -296,72 +361,17 @@ export default function PatientDetail() {
       <h2 style={{ marginTop: "2rem" }}>Patient Details</h2>
       <table>
         <tbody>
-          <tr>
-            <td>
-              <strong>Full name</strong>
-            </td>
-            <td>{patient.full_name}</td>
-          </tr>
-          <tr>
-            <td>
-              <strong>Preferred name</strong>
-            </td>
-            <td>{patient.preferred_name || "-"}</td>
-          </tr>
-          <tr>
-            <td>
-              <strong>Age</strong>
-            </td>
-            <td>{patient.age ?? "-"}</td>
-          </tr>
-          <tr>
-            <td>
-              <strong>Sex</strong>
-            </td>
-            <td>{patient.sex ?? "-"}</td>
-          </tr>
-          <tr>
-            <td>
-              <strong>Joint</strong>
-            </td>
-            <td>{patient.joint_type ?? "-"}</td>
-          </tr>
-          <tr>
-            <td>
-              <strong>Phone</strong>
-            </td>
-            <td>{patient.phone || "-"}</td>
-          </tr>
-          <tr>
-            <td>
-              <strong>Email</strong>
-            </td>
-            <td>{patient.email || "-"}</td>
-          </tr>
-          <tr>
-            <td>
-              <strong>ID number</strong>
-            </td>
-            <td>{patient.id_number || "-"}</td>
-          </tr>
-          <tr>
-            <td>
-              <strong>Medical aid</strong>
-            </td>
-            <td>{patient.medical_aid || "-"}</td>
-          </tr>
-          <tr>
-            <td>
-              <strong>Medical aid #</strong>
-            </td>
-            <td>{patient.medical_aid_number || "-"}</td>
-          </tr>
-          <tr>
-            <td>
-              <strong>Address</strong>
-            </td>
-            <td>{patient.address || "-"}</td>
-          </tr>
+          <tr><td><strong>Full name</strong></td><td>{patient.full_name}</td></tr>
+          <tr><td><strong>Preferred name</strong></td><td>{patient.preferred_name || "-"}</td></tr>
+          <tr><td><strong>Age</strong></td><td>{patient.age ?? "-"}</td></tr>
+          <tr><td><strong>Sex</strong></td><td>{patient.sex ?? "-"}</td></tr>
+          <tr><td><strong>Joint</strong></td><td>{patient.joint_type ?? "-"}</td></tr>
+          <tr><td><strong>Phone</strong></td><td>{patient.phone || "-"}</td></tr>
+          <tr><td><strong>Email</strong></td><td>{patient.email || "-"}</td></tr>
+          <tr><td><strong>ID number</strong></td><td>{patient.id_number || "-"}</td></tr>
+          <tr><td><strong>Medical aid</strong></td><td>{patient.medical_aid || "-"}</td></tr>
+          <tr><td><strong>Medical aid #</strong></td><td>{patient.medical_aid_number || "-"}</td></tr>
+          <tr><td><strong>Address</strong></td><td>{patient.address || "-"}</td></tr>
         </tbody>
       </table>
 
@@ -443,8 +453,10 @@ export default function PatientDetail() {
             const status = (c.case_status || "PLANNED").toUpperCase();
             const busy = actionBusyId === c.id;
 
+            const schedRows = schedulesByCaseId[String(c.id)] || [];
+
             return (
-              <li key={c.id} style={{ marginBottom: "0.9rem" }}>
+              <li key={c.id} style={{ marginBottom: "1.1rem" }}>
                 <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -479,6 +491,58 @@ export default function PatientDetail() {
                     Edit
                   </button>
                 </div>
+
+                {/* NEW - PROM schedule under the case */}
+                {schedRows.length > 0 && (
+                  <div style={{ marginTop: 10, padding: "10px", border: "1px solid #eee" }}>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>PROM Schedule</div>
+
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: "left", padding: "6px 4px", borderBottom: "1px solid #eee" }}>
+                              Due
+                            </th>
+                            <th style={{ textAlign: "left", padding: "6px 4px", borderBottom: "1px solid #eee" }}>
+                              PROM
+                            </th>
+                            <th style={{ textAlign: "left", padding: "6px 4px", borderBottom: "1px solid #eee" }}>
+                              Status
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {schedRows.map((row) => {
+                            const overdue = isOverdue(row.due_date, row.status);
+                            return (
+                              <tr key={row.id}>
+                                <td style={{ padding: "6px 4px", borderBottom: "1px solid #f3f3f3" }}>
+                                  <span style={{ color: overdue ? "#c53030" : "inherit" }}>
+                                    {row.due_date}
+                                    {overdue ? " (overdue)" : ""}
+                                  </span>
+                                </td>
+                                <td style={{ padding: "6px 4px", borderBottom: "1px solid #f3f3f3" }}>
+                                  {row.prom_name}
+                                </td>
+                                <td style={{ padding: "6px 4px", borderBottom: "1px solid #f3f3f3" }}>
+                                  <span style={promStatusBadgeStyle(row.status)}>
+                                    {(row.status || "pending").toLowerCase()}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div style={{ marginTop: 6, fontSize: 12, color: "#666" }}>
+                      Next step later: add a "Complete PROM" button for pending items.
+                    </div>
+                  </div>
+                )}
 
                 {editingCaseId === c.id && (
                   <div style={{ marginTop: "0.75rem", padding: "10px", border: "1px solid #ddd" }}>
@@ -544,11 +608,25 @@ export default function PatientDetail() {
         </ul>
       )}
 
+      {/* PROM Schedule summary for patient (optional top-level) */}
+      <h2 style={{ marginTop: "2rem" }}>PROMs</h2>
+      {promError && <p style={{ color: "red" }}>{promError}</p>}
+      {promSchedules.length === 0 ? (
+        <p style={{ color: "#666" }}>No PROM schedule yet. Complete a case to generate it.</p>
+      ) : (
+        <p style={{ color: "#666" }}>
+          Total scheduled PROMs: <strong>{promSchedules.length}</strong>
+        </p>
+      )}
+
       {/* FILES */}
       <h2 style={{ marginTop: "2rem" }}>Patient Files</h2>
 
       <form onSubmit={handleUpload} style={{ marginBottom: "1rem" }}>
-        <input type="file" onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)} />
+        <input
+          type="file"
+          onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+        />
         <button type="submit" disabled={uploading || !uploadFile}>
           {uploading ? "Uploading..." : "Upload File"}
         </button>

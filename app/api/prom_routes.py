@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
-from datetime import timedelta, date
+from datetime import date
 
 from app.core.db import get_db
 from app.models.case_episode import CaseEpisode
@@ -11,6 +11,8 @@ from app.models.prom_response import PromResponse
 from app.utils.prom_loader import load_prom_template
 from app.schemas.prom_forms import PromFormOut
 from app.schemas.prom_submit import PromSubmitIn
+
+from app.services.prom_scheduler import schedule_proms_for_case
 
 router = APIRouter(prefix="/proms", tags=["PROMs"])
 
@@ -27,52 +29,17 @@ def get_prom_template(prom_name: str):
 
 
 # --------------------------------------------------------
-# 2. GENERATE PROM SCHEDULE FOR A CASE
+# 2. GENERATE PROM SCHEDULE FOR A CASE (idempotent)
 # --------------------------------------------------------
 @router.post("/schedule/{case_id}")
 def generate_schedule(case_id: int, db: Session = Depends(get_db)):
-
-    case = db.query(CaseEpisode).filter(CaseEpisode.id == case_id).first()
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
-
-    # For now – default to Oxford for knees
-    prom_name = "OxfordKneeScore"
-
-    # Ensure template exists
     try:
-        load_prom_template(prom_name)
+        result = schedule_proms_for_case(db, case_id)
+        return result
     except FileNotFoundError:
         raise HTTPException(status_code=400, detail="PROM template missing")
-
-    surgery_date = case.date_of_surgery
-
-    intervals = [
-        -14,   # 2 weeks pre-op
-        42,    # 6 weeks
-        90,    # 3 months
-        180,   # 6 months
-        365,   # 12 months
-        730,   # 24 months
-    ]
-
-    schedules: list[PromSchedule] = []
-
-    for days in intervals:
-        due = surgery_date + timedelta(days=days)
-        entry = PromSchedule(
-            patient_id=case.patient_id,
-            case_id=case.id,
-            prom_name=prom_name,
-            due_date=due,
-            status="pending",
-        )
-        db.add(entry)
-        schedules.append(entry)
-
-    db.commit()
-
-    return {"message": "Schedule created", "count": len(schedules)}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # --------------------------------------------------------
@@ -120,7 +87,6 @@ def get_prom_form(schedule_id: int, db: Session = Depends(get_db)):
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    # Load PROM template (Oxford/KOOS)
     try:
         template = load_prom_template(schedule.prom_name)
     except FileNotFoundError:
@@ -147,15 +113,13 @@ def submit_prom_answers(
     data: PromSubmitIn,
     db: Session = Depends(get_db),
 ):
-    # 1. Fetch schedule
     schedule = db.query(PromSchedule).filter(PromSchedule.id == schedule_id).first()
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
-    if schedule.status == "completed":
+    if (schedule.status or "").lower() == "completed":
         raise HTTPException(status_code=400, detail="PROM already completed")
 
-    # 2. Load template and build question lookup
     try:
         template = load_prom_template(schedule.prom_name)
     except FileNotFoundError:
@@ -167,14 +131,12 @@ def submit_prom_answers(
     if not questions:
         raise HTTPException(status_code=400, detail="Template has no questions")
 
-    # 3. Basic validation and save answers (Option A: 1 row per question)
     existing = (
         db.query(PromResponse)
         .filter(PromResponse.prom_instance_id == schedule.id)
         .all()
     )
     if existing:
-        # To keep it simple: block double-submit
         raise HTTPException(status_code=400, detail="Responses already exist for this PROM")
 
     total_score = 0
@@ -184,10 +146,7 @@ def submit_prom_answers(
         qid = str(answer.id)
 
         if qid not in valid_ids:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid question ID: {qid}",
-            )
+            raise HTTPException(status_code=400, detail=f"Invalid question ID: {qid}")
 
         q_meta = valid_ids[qid]
         min_val = q_meta.get("range_min")
@@ -200,7 +159,6 @@ def submit_prom_answers(
                     detail=f"Answer for question {qid} out of range ({min_val}-{max_val})",
                 )
 
-        # Save response row
         db.add(
             PromResponse(
                 prom_instance_id=schedule.id,
@@ -212,21 +170,19 @@ def submit_prom_answers(
         total_score += answer.value
         answered_count += 1
 
-    # 4. Mark schedule as completed
     schedule.status = "completed"
     schedule.completed_date = date.today()
 
     db.commit()
 
-    # 5. Compute PROM-specific score (for now: Oxford = simple sum)
-    score_payload = None
-
+    # Simple scoring for MVP - Oxford sum
     if schedule.prom_name == "OxfordKneeScore":
+        max_possible = answered_count * (questions[0].get("range_max", 5) if questions else 5)
         score_payload = {
             "prom_name": "OxfordKneeScore",
             "type": "total",
             "value": total_score,
-            "max_possible": answered_count * questions[0].get("range_max", 5),
+            "max_possible": max_possible,
         }
     else:
         score_payload = {

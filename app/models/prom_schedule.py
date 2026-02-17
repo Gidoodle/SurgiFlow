@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Date, ForeignKey
-from sqlalchemy.orm import relationship
 from app.core.config import Base
+
 
 class PromSchedule(Base):
     __tablename__ = "prom_schedules"
@@ -14,3 +14,4 @@ class PromSchedule(Base):
     due_date = Column(Date, nullable=False)
 
     status = Column(String, default="pending")  # pending / completed
+    completed_date = Column(Date, nullable=True)
